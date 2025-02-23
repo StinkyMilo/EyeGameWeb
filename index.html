@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<head>
+    <script src="https://www.lactame.com/lib/ml/6.0.0/ml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.min.js"></script>
+    <link rel="stylesheet" href="https://eyegestures.com/eyegestures.css">
+    <script src="eyegestures.js"></script>
+</head>
+<body>
+    <style>
+        .enemy{
+            position:absolute;
+            margin:0;
+            padding:0;
+            border: 1px solid black;
+        }
+        .circle{
+            border-radius:50%;
+        }
+        .square{
+            border-radius:0;
+        }
+        .small{
+            height:200px;
+            width:200px;
+        }
+        .medium{
+            height:280px;
+            width:280px;
+        }
+        .large{
+            height:360px;
+            width:360px;
+        }
+        .orange{
+            background-color:orange;
+        }
+        .blue{
+            background-color:skyblue;
+        }
+        .black{
+            background-color:black;
+        }
+    </style>
+    <video id="video" width="640" height="480" autoplay style="display: none;"></video>
+    <div id="status" style="display : none;">Initializing...</div>
+    <div id="error" style="display : none;"></div>
+    <div id="enemies" style="position:absolute; top:0; left:0;"></div>
+    <script>
+        const ENEMY_CONTAINER = document.querySelector("#enemies");
+        const BLINK_THRESHOLD = 7;
+        let lookPos = [0,0];
+        let blinkState = "none";
+        let lastBlinkState = "none";
+        function onPoint(point,calibration,blinkRatio){
+            if(calibration){
+                return;
+            }
+            let blinkLeft = blinkRatio[0] >= BLINK_THRESHOLD;
+            let blinkRight = blinkRatio[1] >= BLINK_THRESHOLD;
+
+            //There'll be some extra blink events, so don't punish for a bad blink.
+            if(blinkLeft && blinkRight){
+                blinkState="blink";
+            }else if(blinkLeft){
+                blinkState="left";
+            }else if(blinkRight){
+                blinkState="right";
+            }else{
+                blinkState="none";
+                lookPos = point;
+            }
+        };
+        let enemies = [];
+        function getSize(health){
+            switch(health){
+                case 1:
+                    return "small";
+                case 2:
+                    return "medium";
+                default:
+                    return "large";
+            }
+        }
+        function getPixelSize(health){
+            switch(health){
+                case 1:
+                    return 200
+                case 2:
+                    return 280;
+                default:
+                    return 360;
+            }
+        }
+        //Orange Circle - Left Eye, Blue Circle - Right Eye, Blue Square - Both Eyes, Black Square - AVOID
+        function getDesiredBlinkState(enemy){
+            if(enemy.color == "orange" && enemy.shape=="circle"){
+                return "left";
+            }
+            if(enemy.color == "blue" && enemy.shape=="circle"){
+                return "right";
+            }
+            if(enemy.color == "blue" && enemy.shape == "square"){
+                return "blink";
+            }
+            return "AVOID";
+        }
+        //When attacked properly, enemies decrease in size. When a small one is blinked at, it dies.
+        function newEnemy(shape,health,color,x,y){
+            let enemyElement = document.createElement("div");
+            enemyElement.className = `enemy ${shape} ${getSize(health)} ${color}`;
+            enemyElement.style.left = `${x}px`;
+            enemyElement.style.top = `${y}px`;
+            ENEMY_CONTAINER.appendChild(enemyElement);
+            let enemyObj = {
+                x:x,
+                y:y,
+                shape:shape,
+                color:color,
+                health:health,
+                element:enemyElement
+            };
+            enemies.push(enemyObj);
+        }
+        const gestures = new EyeGestures('video',onPoint);
+        // gestures.invisible(); // to disable blue tracker
+        gestures.start();
+        let lastFrame = null;
+        newEnemy("square",2,"blue",.3*window.innerWidth,.5*window.innerHeight);
+        newEnemy("circle",3,"orange",.8*window.innerWidth,.2*window.innerHeight);
+        let gameLoop = (timestamp)=>{
+            let delta;
+            if(lastFrame==null){
+                lastFrame=timestamp;
+                delta=0;
+            }else{
+                delta=timestamp-lastFrame;
+            }
+            for(let i = 0; i < enemies.length; i++){
+                let enemy = enemies[i];
+                let el = enemy.element;
+                el.style.top = `${enemy.y}px`;
+                el.style.left = `${enemy.x}px`;
+                el.className = `enemy ${enemy.shape} ${getSize(enemy.health)} ${enemy.color}`;
+                let colliding;
+                let radius = getPixelSize(enemy.health)/2;
+                if(el.shape == "square"){
+                    colliding = lookPos[0] >= enemy.x - radius && lookPos[0] <= enemy.x + radius && lookPos[1] >= enemy.y - radius && lookPos[1] <= enemy.y + radius;
+                }else{
+                    colliding = Math.sqrt((lookPos[0]-enemy.x)**2 + (lookPos[1]-enemy.y)**2) <= radius;
+                }
+                //I think these coordinates are close but not quite right. Need to think of a good way to test them.
+                if(colliding){
+                    console.log(`Colliding with enemy ${i}. Enemy position: (${enemy.x}, ${enemy.y}), coordinates: (${lookPos[0]},${lookPos[1]})`);
+                    if(blinkState != lastBlinkState){
+                        let desiredState = getDesiredBlinkState(enemy);
+                        console.log(blinkState,desiredState);
+                        if(desiredState == blinkState){
+                            enemy.health--;
+                            console.log(enemy.health);
+                            console.log("BLINKED AT ENEMY");
+                        }
+                    }
+                }
+            }
+            // console.log(blinkState);
+            lastBlinkState = blinkState;
+            lastFrame=timestamp;
+            requestAnimationFrame(gameLoop);
+        }
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
