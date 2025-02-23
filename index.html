@@ -50,25 +50,30 @@
     <div id="error" style="display : none;"></div>
     <div id="enemies" style="position:absolute; top:0; left:0;"></div>
     <script>
+        const TOTAL_GAME_TIME = 60*60;
         const ENEMY_CONTAINER = document.querySelector("#enemies");
-        const BLINK_THRESHOLD = 7;
-        const MAX_DAMAGE_COOLDOWN = 120;
-        const MAX_ENEMY_SPAWN_COOLDOWN = 300;
+        const BLINK_THRESHOLD = 5;
+        const MAX_DAMAGE_COOLDOWN = 300;
+        const MAX_ENEMY_SPAWN_COOLDOWN = 500;
         const NUM_LAST_POSITIONS = 20;
-        const MAX_ENEMIES = 10;
+        const MAX_SCORE_SUBTRACT_COOLDOWN = 20;
+        const MAX_ENEMIES = 5;
         let positionBuffer = [];
         let lookPos = [0,0];
         let blinkState = "none";
         let lastBlinkState = "none";
         let maxBlinkCooldown = 10;
+        let scoreSubtractCooldown = 0;
         let blinkCooldown = 0;
         let lives = 10;
         let score = 0;
-        let enemy_spawn_cooldown = MAX_ENEMY_SPAWN_COOLDOWN;
+        let enemy_spawn_cooldown = 0;
+        let calbirating=true;
         function onPoint(point,calibration,blinkRatio){
             if(calibration){
                 return;
             }
+            calibrating=false;
             let blinkLeft = blinkRatio[0] >= BLINK_THRESHOLD;
             let blinkRight = blinkRatio[1] >= BLINK_THRESHOLD;
 
@@ -142,82 +147,128 @@
             enemies.push(enemyObj);
         }
         const RANDOM_ENEMY_OPTIONS = [["square",3,"blue"],["circle",3,"blue"],["circle",3,"orange"],["square",3,"black"]];
+        function enemyWouldIntersect(x,y){
+            let size = getPixelSize(3);
+            //Don't worry about circle vs square, just assume all squares
+            for(let i = 0; i < enemies.length; i++){
+                let enemy = enemies[i];
+                //Will be added at max size, so just need to cover the corners of existing enemies to check if they're inside the new enemy
+                if(enemy.x >= x && enemy.x <= x + size && enemy.y >= y && enemy.y <= y+size){
+                    return true;
+                }
+            }
+            return false;
+        }
         function randomEnemy(){
-            var enemyChoice = RANDOM_ENEMY_OPTIONS[Math.floor(Math.random()*RANDOM_ENEMY_OPTIONS.length)];
-            newEnemy(...enemyChoice,Math.random()*window.innerWidth,Math.random()*window.innerHeight);
+            var enemyChoice = RANDOM_ENEMY_OPTIONS[Math.floor(Math.random()*(RANDOM_ENEMY_OPTIONS.length))];
+            let size = getPixelSize(3);
+            let position = [Math.random()*(window.innerWidth-size),Math.random()*(window.innerHeight-size)];
+            while(enemyWouldIntersect(...position)){
+                position = [Math.random()*(window.innerWidth-size),Math.random()*(window.innerHeight-size)];
+            }
+            newEnemy(...enemyChoice,...position);
         }
         const gestures = new EyeGestures('video',onPoint);
         // gestures.invisible(); // to disable blue tracker
         gestures.start();
         let lastFrame = null;
+        // let scoreItem = document.createElement("p");
         let gameLoop = (timestamp)=>{
-            let delta;
-            if(lastFrame==null){
-                lastFrame=timestamp;
-                delta=0;
-            }else{
-                delta=timestamp-lastFrame;
-            }
-            for(let i = 0; i < enemies.length; i++){
-                let enemy = enemies[i];
-                let el = enemy.element;
-                let colliding;
-                let radius = getPixelSize(enemy.health)/2;
-                let midX = enemy.x + radius;
-                let midY = enemy.y + radius;
-                for(let j = 0; j < positionBuffer.length; j++){
-                    let pos = positionBuffer[j];
-                    if(el.shape == "square"){
-                        colliding = pos[0] >= enemy.x && pos[0] <= midX && pos[1] >= enemy.y && pos[1] <= midY;
-                    }else{
-                        colliding = Math.sqrt((pos[0]-midX)**2 + (pos[1]-midY)**2) <= radius;
-                    }
-                    //I think these coordinates are close but not quite right. Need to think of a good way to test them.
-                    if(colliding){
-                        console.log(`Colliding with enemy ${i}. Enemy position: (${enemy.x}, ${enemy.y}), coordinates: (${pos[0]},${pos[1]})`);
-                        if(blinkCooldown <= 0){
-                            let desiredState = getDesiredBlinkState(enemy);
-                            console.log(blinkState,desiredState);
-                            if(desiredState == blinkState){
-                                positionBuffer = [];
-                                enemy.health--;
-                                console.log(enemy.health);
-                                console.log("BLINKED AT ENEMY");
-                                blinkCooldown=maxBlinkCooldown;
-                                let newRadius = getPixelSize(enemy.health)/2;
-                                enemy.x = midX - newRadius;
-                                enemy.y = midY - newRadius;
-                                if(enemy.health <= 0){
-                                    el.remove();
-                                    enemies.splice(i,1);
-                                    i--;
+            if(!calibrating){
+                let delta;
+                if(lastFrame==null){
+                    document.querySelector("#cursor").style.fontSize="30px";
+                    document.querySelector("#cursor").style.color="white";
+                    document.querySelector("#cursor").style.textAlign="center";
+                    document.querySelector("#cursor").style.verticalAlign="center";
+                    lastFrame=timestamp;
+                    delta=0;
+                }else{
+                    delta=timestamp-lastFrame;
+                }
+                for(let i = 0; i < enemies.length; i++){
+                    let enemy = enemies[i];
+                    let el = enemy.element;
+                    let colliding;
+                    let radius = getPixelSize(enemy.health)/2;
+                    let midX = enemy.x + radius;
+                    let midY = enemy.y + radius;
+                    for(let j = 0; j < positionBuffer.length; j++){
+                        let pos = positionBuffer[j];
+                        if(el.shape == "square"){
+                            colliding = pos[0] >= enemy.x && pos[0] <= midX && pos[1] >= enemy.y && pos[1] <= midY;
+                        }else{
+                            colliding = Math.sqrt((pos[0]-midX)**2 + (pos[1]-midY)**2) <= radius;
+                        }
+                        //I think these coordinates are close but not quite right. Need to think of a good way to test them.
+                        if(colliding){
+                            console.log(`Colliding with enemy ${i}. Enemy position: (${enemy.x}, ${enemy.y}), coordinates: (${pos[0]},${pos[1]})`);
+                            if(enemy.shape == "square" && enemy.color == "black"){
+                                if(scoreSubtractCooldown <= 1){
+                                    score--;
+                                }
+                            }else if(blinkCooldown <= 0){
+                                let desiredState = getDesiredBlinkState(enemy);
+                                console.log(blinkState,desiredState);
+                                if(desiredState == blinkState){
+                                    positionBuffer = [];
+                                    enemy.health--;
+                                    console.log(enemy.health);
+                                    console.log("BLINKED AT ENEMY");
+                                    blinkCooldown=maxBlinkCooldown;
+                                    let newRadius = getPixelSize(enemy.health)/2;
+                                    enemy.x = midX - newRadius;
+                                    enemy.y = midY - newRadius;
+                                    if(enemy.health <= 0){
+                                        el.remove();
+                                        enemies.splice(i,1);
+                                        score+=3;
+                                        i--;
+                                    }else{
+                                        score++;
+                                    }
                                 }
                             }
                         }
                     }
+                    enemy.cooldown--;
+                    el.innerHTML=enemy.cooldown;
+                    if(enemy.cooldown<=0){
+                        if(enemy.color=="black" && enemy.shape=="square"){
+                            enemy.health--;
+                            let newRadius = getPixelSize(enemy.health)/2;
+                            enemy.x = midX - newRadius;
+                            enemy.y = midY - newRadius;
+                            if(enemy.health <= 0){
+                                el.remove();
+                                enemies.splice(i,1);
+                                i--;
+                            }
+                        }
+                        enemy.cooldown = MAX_DAMAGE_COOLDOWN;
+                    }
+                    el.style.top = `${enemy.y}px`;
+                    el.style.left = `${enemy.x}px`;
+                    el.className = `enemy ${enemy.shape} ${getSize(enemy.health)} ${enemy.color}`;
                 }
-                enemy.cooldown--;
-                el.innerHTML=enemy.cooldown;
-                if(enemy.cooldown<=0){
-                    enemy.cooldown = MAX_DAMAGE_COOLDOWN;
+                scoreSubtractCooldown--;
+                if(scoreSubtractCooldown<=0){
+                    scoreSubtractCooldown=MAX_SCORE_SUBTRACT_COOLDOWN;
                 }
-                el.style.top = `${enemy.y}px`;
-                el.style.left = `${enemy.x}px`;
-                el.className = `enemy ${enemy.shape} ${getSize(enemy.health)} ${enemy.color}`;
+                blinkCooldown--;
+                if(blinkCooldown <= 0){
+                    blinkCooldown=0;
+                }
+                enemy_spawn_cooldown--;
+                if(enemy_spawn_cooldown<=0 && enemies.length < MAX_ENEMIES){
+                    randomEnemy();
+                    enemy_spawn_cooldown=MAX_ENEMY_SPAWN_COOLDOWN;
+                }
+                // console.log(blinkState);
+                lastBlinkState = blinkState;
+                lastFrame=timestamp;
+                document.querySelector("#cursor").innerHTML=score;
             }
-            blinkCooldown--;
-            if(blinkCooldown <= 0){
-                blinkCooldown=0;
-            }
-            enemy_spawn_cooldown--;
-            if(enemy_spawn_cooldown<=0 && enemies.length < MAX_ENEMIES){
-                randomEnemy();
-                enemy_spawn_cooldown=MAX_ENEMY_SPAWN_COOLDOWN;
-            }
-            // console.log(blinkState);
-            lastBlinkState = blinkState;
-            lastFrame=timestamp;
-            document.querySelector("#cursor").innerHTML=`Score: ${score}<br/>Lives: ${lives}`;
             requestAnimationFrame(gameLoop);
         }
         requestAnimationFrame(gameLoop);
