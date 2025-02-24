@@ -24,16 +24,16 @@
             border-radius:0;
         }
         .small{
-            height:200px;
-            width:200px;
+            height:240px;
+            width:240px;
         }
         .medium{
-            height:280px;
-            width:280px;
+            height:320px;
+            width:320px;
         }
         .large{
-            height:360px;
-            width:360px;
+            height:400px;
+            width:400px;
         }
         .orange{
             background-color:orange;
@@ -44,19 +44,30 @@
         .black{
             background-color:black;
         }
+        #gameOver{
+            position:absolute;
+            left:50%;
+            top:50%;
+            transform:translate(-50%,-50%);
+        }
     </style>
     <video id="video" width="640" height="480" autoplay style="display: none;"></video>
     <div id="status" style="display : none;">Initializing...</div>
     <div id="error" style="display : none;"></div>
     <div id="enemies" style="position:absolute; top:0; left:0;"></div>
+    <div id="gameOver" style="visibility:hidden;">
+        <h1>Game Over</h1>
+        <p id="scoreText">Your score was 0.</p>
+        <p>Refresh to play again.</p>
+    </div>
     <script>
         const TOTAL_GAME_TIME = 60*60;
         const ENEMY_CONTAINER = document.querySelector("#enemies");
         const BLINK_THRESHOLD = 5;
         const MAX_DAMAGE_COOLDOWN = 300;
-        const MAX_ENEMY_SPAWN_COOLDOWN = 500;
+        const MAX_ENEMY_SPAWN_COOLDOWN = 300;
         const NUM_LAST_POSITIONS = 20;
-        const MAX_SCORE_SUBTRACT_COOLDOWN = 20;
+        const MAX_SCORE_SUBTRACT_COOLDOWN = 5;
         const MAX_ENEMIES = 5;
         let positionBuffer = [];
         let lookPos = [0,0];
@@ -68,7 +79,8 @@
         let lives = 10;
         let score = 0;
         let enemy_spawn_cooldown = 0;
-        let calbirating=true;
+        let calibrating=true;
+        let timeLeft = TOTAL_GAME_TIME;
         function onPoint(point,calibration,blinkRatio){
             if(calibration){
                 return;
@@ -107,11 +119,11 @@
         function getPixelSize(health){
             switch(health){
                 case 1:
-                    return 200
+                    return 240;
                 case 2:
-                    return 280;
+                    return 320;
                 default:
-                    return 360;
+                    return 400;
             }
         }
         //Orange Circle - Left Eye, Blue Circle - Right Eye, Blue Square - Both Eyes, Black Square - AVOID
@@ -171,10 +183,11 @@
         const gestures = new EyeGestures('video',onPoint);
         // gestures.invisible(); // to disable blue tracker
         gestures.start();
+        let gameOver=false;
         let lastFrame = null;
         // let scoreItem = document.createElement("p");
         let gameLoop = (timestamp)=>{
-            if(!calibrating){
+            if(!calibrating && !gameOver){
                 let delta;
                 if(lastFrame==null){
                     document.querySelector("#cursor").style.fontSize="30px";
@@ -206,6 +219,7 @@
                             if(enemy.shape == "square" && enemy.color == "black"){
                                 if(scoreSubtractCooldown <= 1){
                                     score--;
+                                    break;
                                 }
                             }else if(blinkCooldown <= 0){
                                 let desiredState = getDesiredBlinkState(enemy);
@@ -222,12 +236,13 @@
                                     if(enemy.health <= 0){
                                         el.remove();
                                         enemies.splice(i,1);
-                                        score+=3;
+                                        score+=5;
                                         i--;
                                     }else{
                                         score++;
                                     }
                                 }
+                                break;
                             }
                         }
                     }
@@ -244,6 +259,8 @@
                                 enemies.splice(i,1);
                                 i--;
                             }
+                        }else{
+                            score--;
                         }
                         enemy.cooldown = MAX_DAMAGE_COOLDOWN;
                     }
@@ -263,6 +280,12 @@
                 if(enemy_spawn_cooldown<=0 && enemies.length < MAX_ENEMIES){
                     randomEnemy();
                     enemy_spawn_cooldown=MAX_ENEMY_SPAWN_COOLDOWN;
+                }
+                timeLeft--;
+                if(timeLeft <= 0){
+                    gameOver=true;
+                    document.querySelector("#gameOver").style.visibility = "visible";
+                    document.querySelector("#scoreText").innerHTML=`Your score was ${score}.`;
                 }
                 // console.log(blinkState);
                 lastBlinkState = blinkState;
